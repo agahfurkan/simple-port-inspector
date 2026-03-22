@@ -1,6 +1,6 @@
 # port-inspector
 
-A lazygit-style terminal UI for inspecting which processes are using network ports on macOS.
+Terminal UI for inspecting which processes are using network ports on macOS.
 
 ![screenshot](screenshot.png)
 
@@ -123,7 +123,3 @@ Green means on, muted means off.
 - [Bubble Tea](https://github.com/charmbracelet/bubbletea) -- TUI framework
 - [Bubbles](https://github.com/charmbracelet/bubbles) -- TUI components
 - [Lip Gloss](https://github.com/charmbracelet/lipgloss) -- Style definitions
-
-## License
-
-MIT
