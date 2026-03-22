@@ -32,25 +32,12 @@ var (
 			Background(primaryColor).
 			Padding(0, 1)
 
-	titleBarStyle = lipgloss.NewStyle().
-			Background(surfaceColor).
-			Width(80) // will be set dynamically
-
 	// Table
-	headerStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(primaryColor).
-			BorderBottom(true).
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(overlayColor)
 
 	selectedRowStyle = lipgloss.NewStyle().
 				Background(surfaceColor).
 				Foreground(textColor).
 				Bold(true)
-
-	normalRowStyle = lipgloss.NewStyle().
-			Foreground(textColor)
 
 	portStyle = lipgloss.NewStyle().
 			Foreground(accentColor).
@@ -77,12 +64,6 @@ var (
 			Background(surfaceColor).
 			Foreground(textColor).
 			Padding(0, 1)
-
-	statusTagStyle = lipgloss.NewStyle().
-			Background(primaryColor).
-			Foreground(lipgloss.Color("#CDD6F4")).
-			Padding(0, 1).
-			Bold(true)
 
 	statusErrorStyle = lipgloss.NewStyle().
 				Foreground(dangerColor).
@@ -195,9 +176,9 @@ func (m Model) renderTitleBar() string {
 
 	// Auto-refresh indicator
 	if m.autoRefresh {
-		indicators = append(indicators, lipgloss.NewStyle().Foreground(successColor).Render("● auto"))
+		indicators = append(indicators, lipgloss.NewStyle().Foreground(successColor).Render("AUTO"))
 	} else {
-		indicators = append(indicators, lipgloss.NewStyle().Foreground(mutedColor).Render("○ paused"))
+		indicators = append(indicators, lipgloss.NewStyle().Foreground(warningColor).Render("MANUAL"))
 	}
 
 	// Listen-only filter
@@ -232,6 +213,35 @@ func (m Model) renderTitleBar() string {
 	return bar
 }
 
+// tableColumns returns the fixed column widths based on terminal width.
+// Every column uses left-aligned, fixed-width padding so headers and data
+// cells are guaranteed to line up.
+func (m Model) tableColumns() (colPort, colProto, colState, colPID, colUser, colCommand, colAddr int) {
+	const gap = 1 // single space between columns
+	colPort = 7
+	colProto = 5
+	colState = 13
+	colPID = 8
+	colUser = 10
+	colCommand = 18
+
+	// 2 chars for cursor prefix "  " / "> "
+	fixed := 2 + colPort + colProto + colState + colPID + colUser + colCommand + (gap * 6)
+	colAddr = m.width - fixed
+	if colAddr < 12 {
+		colAddr = 12
+	}
+	return
+}
+
+// pad right-pads s to exactly width characters using spaces.
+func pad(s string, width int) string {
+	if len(s) >= width {
+		return s[:width]
+	}
+	return s + strings.Repeat(" ", width-len(s))
+}
+
 func (m Model) renderTable() string {
 	if m.err != nil {
 		return fmt.Sprintf("\n  %s\n", statusErrorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
@@ -251,37 +261,34 @@ func (m Model) renderTable() string {
 
 	var b strings.Builder
 
-	// Column widths
-	colPort := 7
-	colProto := 5
-	colState := 14
-	colPID := 8
-	colUser := 12
-	colCommand := 20
-	colAddr := m.width - colPort - colProto - colState - colPID - colUser - colCommand - 12 // padding + cursor
-	if colAddr < 10 {
-		colAddr = 10
-	}
+	colPort, colProto, colState, colPID, colUser, colCommand, colAddr := m.tableColumns()
 
-	// Header
-	header := fmt.Sprintf("  %s  %s  %s  %s  %s  %s  %s",
-		headerStyle.Width(colPort).Render("PORT"),
-		headerStyle.Width(colProto).Render("PROTO"),
-		headerStyle.Width(colState).Render("STATE"),
-		headerStyle.Width(colPID).Render("PID"),
-		headerStyle.Width(colUser).Render("USER"),
-		headerStyle.Width(colCommand).Render("COMMAND"),
-		headerStyle.Width(colAddr).Render("ADDRESS"),
+	// ── Header row ──────────────────────────────────────────────────────
+	hdrStyle := lipgloss.NewStyle().Bold(true).Foreground(primaryColor)
+
+	header := fmt.Sprintf("  %s %s %s %s %s %s %s",
+		hdrStyle.Render(pad("PORT", colPort)),
+		hdrStyle.Render(pad("PROTO", colProto)),
+		hdrStyle.Render(pad("STATE", colState)),
+		hdrStyle.Render(pad("PID", colPID)),
+		hdrStyle.Render(pad("USER", colUser)),
+		hdrStyle.Render(pad("COMMAND", colCommand)),
+		hdrStyle.Render(pad("ADDRESS", colAddr)),
 	)
 	b.WriteString(header + "\n")
 
-	// Visible rows
+	// Separator line
+	sep := lipgloss.NewStyle().Foreground(overlayColor).Render(
+		"  " + strings.Repeat("─", m.width-2))
+	b.WriteString(sep + "\n")
+
+	// ── Data rows ───────────────────────────────────────────────────────
 	visibleRows := m.tableVisibleRows()
 	if visibleRows < 1 {
 		visibleRows = 1
 	}
 
-	// Calculate scroll offset
+	// Calculate scroll offset to keep cursor visible
 	start := 0
 	if m.cursor >= visibleRows {
 		start = m.cursor - visibleRows + 1
@@ -295,19 +302,19 @@ func (m Model) renderTable() string {
 		e := m.filteredRows[i]
 		selected := i == m.cursor
 
-		// Format state with color
-		var stateStr string
+		// State cell with color
+		stateText := e.State
+		if stateText == "" {
+			stateText = "-"
+		}
+		var stateCell string
 		switch e.State {
 		case "LISTEN":
-			stateStr = stateListenStyle.Width(colState).Render(e.State)
+			stateCell = stateListenStyle.Render(pad(stateText, colState))
 		case "ESTABLISHED":
-			stateStr = stateEstablishedStyle.Width(colState).Render(e.State)
+			stateCell = stateEstablishedStyle.Render(pad(stateText, colState))
 		default:
-			state := e.State
-			if state == "" {
-				state = "-"
-			}
-			stateStr = stateOtherStyle.Width(colState).Render(state)
+			stateCell = stateOtherStyle.Render(pad(stateText, colState))
 		}
 
 		cursor := "  "
@@ -315,15 +322,15 @@ func (m Model) renderTable() string {
 			cursor = cursorStyle.Render("> ")
 		}
 
-		row := fmt.Sprintf("%s%s  %s  %s  %s  %s  %s  %s",
+		row := fmt.Sprintf("%s%s %s %s %s %s %s %s",
 			cursor,
-			portStyle.Width(colPort).Render(fmt.Sprintf("%d", e.Port)),
-			lipgloss.NewStyle().Width(colProto).Foreground(mutedColor).Render(e.Protocol),
-			stateStr,
-			pidStyle.Width(colPID).Render(fmt.Sprintf("%d", e.PID)),
-			lipgloss.NewStyle().Width(colUser).Foreground(textColor).Render(truncate(e.User, colUser)),
-			commandStyle.Width(colCommand).Render(truncate(e.Command, colCommand)),
-			lipgloss.NewStyle().Width(colAddr).Foreground(mutedColor).Render(truncate(e.LocalAddr, colAddr)),
+			portStyle.Render(pad(fmt.Sprintf("%d", e.Port), colPort)),
+			lipgloss.NewStyle().Foreground(mutedColor).Render(pad(e.Protocol, colProto)),
+			stateCell,
+			pidStyle.Render(pad(fmt.Sprintf("%d", e.PID), colPID)),
+			lipgloss.NewStyle().Foreground(textColor).Render(pad(truncate(e.User, colUser), colUser)),
+			commandStyle.Render(pad(truncate(e.Command, colCommand), colCommand)),
+			lipgloss.NewStyle().Foreground(mutedColor).Render(pad(truncate(e.LocalAddr, colAddr), colAddr)),
 		)
 
 		if selected {
@@ -433,6 +440,11 @@ func (m Model) renderSearchBar() string {
 }
 
 func (m Model) renderStatusBar() string {
+	onStyle := lipgloss.NewStyle().Foreground(successColor).Bold(true)
+	offStyle := lipgloss.NewStyle().Foreground(mutedColor)
+	labelStyle := lipgloss.NewStyle().Foreground(overlayColor)
+
+	// ── Left: status message or last scan time ──────────────────────────
 	var left string
 	if m.statusMessage != "" {
 		if strings.HasPrefix(m.statusMessage, "✓") {
@@ -445,30 +457,113 @@ func (m Model) renderStatusBar() string {
 			fmt.Sprintf("Last scan: %s", m.lastScan.Format(time.Kitchen)))
 	}
 
-	helpText := lipgloss.NewStyle().Foreground(mutedColor).Render(
-		"j/k:navigate  enter:details  x:kill  /:search  l:listen  s:system  ?:help  q:quit")
+	// ── Center: current settings indicators ─────────────────────────────
+	var indicators []string
 
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(helpText) - 2
-	if gap < 0 {
-		gap = 0
-		// Truncate help if needed
-		helpText = lipgloss.NewStyle().Foreground(mutedColor).Render("?:help  q:quit")
-		gap = m.width - lipgloss.Width(left) - lipgloss.Width(helpText) - 2
-		if gap < 0 {
-			gap = 0
-		}
+	// Auto-refresh
+	if m.autoRefresh {
+		indicators = append(indicators, labelStyle.Render("auto:")+onStyle.Render("on"))
+	} else {
+		indicators = append(indicators, labelStyle.Render("auto:")+offStyle.Render("off"))
 	}
 
-	bar := statusBarStyle.Width(m.width).Render(left + strings.Repeat(" ", gap) + helpText)
+	// Listen-only
+	if m.showListening {
+		indicators = append(indicators, labelStyle.Render("listen:")+onStyle.Render("on"))
+	} else {
+		indicators = append(indicators, labelStyle.Render("listen:")+offStyle.Render("off"))
+	}
+
+	// System processes
+	if m.showSystem {
+		indicators = append(indicators, labelStyle.Render("system:")+onStyle.Render("on"))
+	} else {
+		indicators = append(indicators, labelStyle.Render("system:")+offStyle.Render("off"))
+	}
+
+	center := strings.Join(indicators, "  ")
+
+	// ── Right: key hints ────────────────────────────────────────────────
+	helpText := lipgloss.NewStyle().Foreground(mutedColor).Render(
+		"j/k:nav  x:kill  r:scan  /:search  ?:help  q:quit")
+
+	// Layout: left + gap + center + gap + right
+	centerWidth := lipgloss.Width(center)
+	leftWidth := lipgloss.Width(left)
+	rightWidth := lipgloss.Width(helpText)
+	totalContent := leftWidth + centerWidth + rightWidth
+
+	remaining := m.width - totalContent - 2 // -2 for statusBarStyle padding
+	if remaining < 2 {
+		// Not enough room for center — drop it
+		gap := m.width - leftWidth - rightWidth - 2
+		if gap < 0 {
+			helpText = lipgloss.NewStyle().Foreground(mutedColor).Render("?:help  q:quit")
+			rightWidth = lipgloss.Width(helpText)
+			gap = m.width - leftWidth - rightWidth - 2
+			if gap < 0 {
+				gap = 0
+			}
+		}
+		bar := statusBarStyle.Width(m.width).Render(left + strings.Repeat(" ", gap) + helpText)
+		return bar
+	}
+
+	gapLeft := remaining / 2
+	gapRight := remaining - gapLeft
+
+	bar := statusBarStyle.Width(m.width).Render(
+		left + strings.Repeat(" ", gapLeft) + center + strings.Repeat(" ", gapRight) + helpText)
 	return bar
 }
 
 func (m Model) renderHelp() string {
 	var b strings.Builder
 
+	onStyle := lipgloss.NewStyle().Foreground(successColor).Bold(true)
+	offStyle := lipgloss.NewStyle().Foreground(mutedColor)
+
 	b.WriteString("\n")
 	b.WriteString(helpTitleStyle.Render("  Keyboard Shortcuts") + "\n\n")
 
+	// ── Current Settings ────────────────────────────────────────────────
+	b.WriteString("  " + lipgloss.NewStyle().Foreground(primaryColor).Bold(true).Render("Current Settings") + "\n")
+
+	autoLabel := offStyle.Render("OFF")
+	if m.autoRefresh {
+		autoLabel = onStyle.Render("ON")
+	}
+	listenLabel := offStyle.Render("OFF")
+	if m.showListening {
+		listenLabel = onStyle.Render("ON")
+	}
+	systemLabel := offStyle.Render("hidden")
+	if m.showSystem {
+		systemLabel = onStyle.Render("visible")
+	}
+	searchLabel := offStyle.Render("none")
+	if m.searchQuery != "" {
+		searchLabel = lipgloss.NewStyle().Foreground(accentColor).Render(m.searchQuery)
+	}
+
+	settings := []struct {
+		label string
+		value string
+	}{
+		{"Auto-refresh", autoLabel},
+		{"Listen-only", listenLabel},
+		{"System procs", systemLabel},
+		{"Search", searchLabel},
+	}
+	for _, s := range settings {
+		b.WriteString(fmt.Sprintf("    %s %s\n",
+			helpKeyStyle.Render(s.label),
+			s.value,
+		))
+	}
+	b.WriteString("\n")
+
+	// ── Keybinding sections ─────────────────────────────────────────────
 	sections := []struct {
 		title string
 		keys  []struct {
@@ -489,6 +584,9 @@ func (m Model) renderHelp() string {
 				{"Ctrl+d", "Half page down"},
 				{"Ctrl+u", "Half page up"},
 				{"Enter", "View process details"},
+				{"Click", "Select row"},
+				{"Click again", "Open details"},
+				{"Scroll", "Scroll list"},
 			},
 		},
 		{
@@ -499,8 +597,8 @@ func (m Model) renderHelp() string {
 			}{
 				{"x", "Kill process (SIGTERM)"},
 				{"X", "Force kill process (SIGKILL)"},
-				{"r", "Manual refresh"},
-				{"a", "Toggle auto-refresh"},
+				{"r", "Scan ports (manual refresh)"},
+				{"a", "Toggle auto-refresh (3s)"},
 				{"l", "Toggle listen-only filter"},
 				{"s", "Toggle system processes"},
 			},

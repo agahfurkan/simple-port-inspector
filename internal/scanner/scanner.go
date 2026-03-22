@@ -69,6 +69,9 @@ func ScanWithFilter(portFilter string) (*ScanResult, error) {
 
 	entries := parseLsofOutput(string(output))
 
+	// Deduplicate entries that differ only by IPv4/IPv6 (same PID+Port+Protocol+State)
+	entries = deduplicateEntries(entries)
+
 	// Sort by port number
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].Port != entries[j].Port {
@@ -179,6 +182,41 @@ func parseLsofOutput(output string) []PortEntry {
 	}
 
 	return entries
+}
+
+// deduplicateEntries collapses entries that share the same PID, Port, Protocol,
+// and State but differ only in address family (IPv4 vs IPv6). When both exist
+// we keep the IPv4 entry and annotate the Type field as "IPv4+IPv6".
+func deduplicateEntries(entries []PortEntry) []PortEntry {
+	type dedupKey struct {
+		PID      int
+		Port     int
+		Protocol string
+		State    string
+	}
+
+	seen := make(map[dedupKey]int) // key -> index in result slice
+	var result []PortEntry
+
+	for _, e := range entries {
+		k := dedupKey{PID: e.PID, Port: e.Port, Protocol: e.Protocol, State: e.State}
+		if idx, exists := seen[k]; exists {
+			// Already have an entry for this key — merge type info
+			existing := &result[idx]
+			if existing.Type != e.Type {
+				existing.Type = "IPv4+IPv6"
+			}
+			// Prefer the more specific local address (not wildcard)
+			if strings.HasPrefix(existing.LocalAddr, "*") && !strings.HasPrefix(e.LocalAddr, "*") {
+				existing.LocalAddr = e.LocalAddr
+			}
+		} else {
+			seen[k] = len(result)
+			result = append(result, e)
+		}
+	}
+
+	return result
 }
 
 // systemCommands is a set of known macOS system process names that use network

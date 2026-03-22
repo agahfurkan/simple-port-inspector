@@ -95,7 +95,7 @@ func NewModel() Model {
 		searchInput:   ti,
 		help:          h,
 		keys:          defaultKeyMap(),
-		autoRefresh:   true,
+		autoRefresh:   false,
 		showListening: false,
 		showSystem:    false,
 		mode:          viewTable,
@@ -155,6 +155,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMessage = ""
 		}
 		return m, tickCmd()
+
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
 
 	case tea.KeyMsg:
 		// Global keys
@@ -262,7 +265,6 @@ func (m Model) updateTable(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.applyFilter()
 		m.cursor = 0
 	case key.Matches(msg, m.keys.Refresh):
-		m.autoRefresh = false
 		return m, doScan
 	case key.Matches(msg, m.keys.ToggleAutoRefresh):
 		m.autoRefresh = !m.autoRefresh
@@ -347,6 +349,70 @@ func (m Model) updateConfirmKill(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	// Only handle clicks in table view
+	if m.mode != viewTable {
+		return m, nil
+	}
+
+	// Handle scroll wheel
+	if msg.Button == tea.MouseButtonWheelUp {
+		if m.cursor > 0 {
+			m.cursor--
+		}
+		return m, nil
+	}
+	if msg.Button == tea.MouseButtonWheelDown {
+		if m.cursor < len(m.filteredRows)-1 {
+			m.cursor++
+		}
+		return m, nil
+	}
+
+	// Only handle left click release (= completed click)
+	if msg.Button != tea.MouseButtonLeft || msg.Action != tea.MouseActionRelease {
+		return m, nil
+	}
+
+	if len(m.filteredRows) == 0 {
+		return m, nil
+	}
+
+	// Layout: title(1) + header(1) + separator(1) = data starts at Y=3
+	const dataStartY = 3
+
+	clickY := msg.Y
+	if clickY < dataStartY {
+		return m, nil
+	}
+
+	// Compute scroll offset (same logic as renderTable)
+	visibleRows := m.tableVisibleRows()
+	if visibleRows < 1 {
+		visibleRows = 1
+	}
+	scrollStart := 0
+	if m.cursor >= visibleRows {
+		scrollStart = m.cursor - visibleRows + 1
+	}
+
+	rowIdx := scrollStart + (clickY - dataStartY)
+	if rowIdx < 0 || rowIdx >= len(m.filteredRows) {
+		return m, nil
+	}
+
+	// If clicking the already-selected row, open detail view
+	if rowIdx == m.cursor {
+		m.mode = viewDetail
+		m.detailCursor = 0
+		return m, nil
+	}
+
+	// Otherwise, select the row
+	m.cursor = rowIdx
+	return m, nil
+}
+
 func (m *Model) applyFilter() {
 	if m.scanResult == nil {
 		m.filteredRows = nil
@@ -384,8 +450,8 @@ func (m *Model) applyFilter() {
 }
 
 func (m Model) tableVisibleRows() int {
-	// header(3) + table header(1) + footer(3) + border(2)
-	return m.height - 9
+	// title(1) + header(1) + separator(1) + status bar(1) = 4 lines of chrome
+	return m.height - 4
 }
 
 // Commands
