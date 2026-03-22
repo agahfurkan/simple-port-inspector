@@ -11,8 +11,8 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/port-inspector/port-inspector/internal/process"
-	"github.com/port-inspector/port-inspector/internal/scanner"
+	"github.com/agahfurkan/simple-port-inspector/internal/process"
+	"github.com/agahfurkan/simple-port-inspector/internal/scanner"
 )
 
 // View modes

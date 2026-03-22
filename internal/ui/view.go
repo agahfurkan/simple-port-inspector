@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/port-inspector/port-inspector/internal/process"
+	"github.com/agahfurkan/simple-port-inspector/internal/process"
 )
 
 // ── Styles ──────────────────────────────────────────────────────────────────

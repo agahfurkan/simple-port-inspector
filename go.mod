@@ -1,4 +1,4 @@
-module github.com/port-inspector/port-inspector
+module github.com/agahfurkan/simple-port-inspector
 
 go 1.26.1
 
